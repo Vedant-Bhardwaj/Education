@@ -1,0 +1,3556 @@
+---
+title: "Education Chapter"
+author: "Vedant Bhardwaj"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, echo=TRUE}
+# Load necessary libraries and mention the file path
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stargazer)
+library(lmtest)
+library(sandwich)
+library(broom)
+library(RColorBrewer)
+dir_path <- "C:/Users/vedu0/Downloads/STU_QQQ_SPSS"
+```
+
+```{r, echo=TRUE}
+
+file_name <- "CY08MSP_STU_QQQ.SAV"
+file_path <- file.path(dir_path, file_name)
+# Step 1: Read only the structure of the SPSS file to get variable names
+data_structure <- read_sav(file_path, n_max = 0)  # Loads only the headers
+
+# Extract variable names
+var_names <- colnames(data_structure)
+
+
+# Step 3: Identify variables containing "PV" and "MATH"
+pv_math_vars <- var_names[grepl("PV", var_names, ignore.case = TRUE) & grepl("MATH", var_names, ignore.case = TRUE)]
+
+
+pv_read_vars <- var_names[grepl("PV", var_names, ignore.case = TRUE) & grepl("READ", var_names, ignore.case = TRUE)]
+
+variable_list<-c("CNT","CNTRYID","LANGTEST_COG","CNTSTUID","GRADE","REPEAT","PAREDINT", "IMMIG","AGE","ST126Q01TA","ST001D01T","ST003D02T","ST003D03T","ST004D01T","W_FSTUWT")
+
+
+# Step 4: Combine first 20 variables with "PV" and "MATH" variables
+selected_vars <- unique(c(variable_list, pv_math_vars,pv_read_vars))
+
+
+```
+
+```{r, echo=TRUE}
+# Load only the selected variables from the PISA 2022 SPSS file
+data_2022 <- read_sav(file_path, col_select = all_of(selected_vars))
+
+#Adding year variable 
+data_2022$wave<-2022
+
+# Provide a summary of the selected data
+summary(data_2022)
+
+```
+
+
+
+```{r, echo=TRUE}
+
+file_name <- "CY07_MSU_STU_QQQ.sav"
+file_path <- file.path(dir_path, file_name)
+# Load only the selected variables from the PISA 2022 SPSS file
+data_2018 <- read_sav(file_path, col_select = all_of(selected_vars))
+
+#Adding year variable 
+data_2018$wave<-2018
+
+# Provide a summary of the selected data
+summary(data_2018)
+
+```
+
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+variable_list<-c("CNT","CNTRYID","LANGTEST_COG","CNTSTUID","GRADE","PARED","REPEAT", "IMMIG","AGE","ST126Q01TA","ST001D01T","ST003D02T","ST003D03T","ST004D01T","W_FSTUWT")
+
+
+# Step 4: Combine first 20 variables with "PV" and "MATH" variables
+selected_vars <- unique(c(variable_list, pv_math_vars,pv_read_vars))
+
+file_name <- "CY6_MS_CMB_STU_QQQ.sav"
+file_path <- file.path(dir_path, file_name)
+# Load only the selected variables from the PISA 2022 SPSS file
+data_2015 <- read_sav(file_path, col_select = all_of(selected_vars))
+data_2015 <- data_2015 %>% rename(PAREDINT = PARED)
+
+#Adding year variable 
+data_2015$wave<-2015
+
+# Provide a summary of the selected data
+summary(data_2015)
+```
+
+
+```{r, echo=TRUE}
+countries=c("AUT","ARE")
+# Filter the datasets
+data_2015 <- filter(data_2015, CNT %in% countries)
+data_2018 <- filter(data_2018, CNT %in% countries)
+data_2022 <- filter(data_2022, CNT %in% countries)
+
+# Append datasets by row
+data <- bind_rows(data_2015, data_2018, data_2022)
+```
+
+```{r, echo=TRUE,warning=FALSE}
+data <- data %>%
+  mutate(math_score = rowSums(select(., all_of(pv_math_vars)), na.rm = TRUE) / length(pv_math_vars))
+
+data <- data %>%
+  mutate(read_score = rowSums(select(., all_of(pv_read_vars)), na.rm = TRUE) / length(pv_read_vars))
+
+# Create a named vector for the country code to name mapping
+country_mapping <- c(
+  "AUT" = "AUSTRIA",
+  "ARE" = "U.A.E",
+  "LUX" = "LUXEMBOURG",
+  "ALB" = "ALBANIA",
+  "SVK" = "SLOVAK REPUBLIC",
+  "BLR" = "BELARUS"
+)
+# Replace the country codes with the full names
+data <- data %>%
+  mutate(CNT = country_mapping[CNT])
+
+data$ST126Q01TA <- as_factor(data$ST126Q01TA)
+data<-filter(data,ST126Q01TA!="",ST126Q01TA!="9 or older",ST126Q01TA!="3 or younger")
+data$ST126Q01TA <-  as.numeric(as.character(data$ST126Q01TA))
+
+
+
+# For Math Scores
+math_deciles <- data %>%
+  group_by(CNT, wave) %>%
+  summarize(
+    `1` = quantile(math_score, 0.1, na.rm = TRUE),
+    `2` = quantile(math_score, 0.2, na.rm = TRUE),
+    `3` = quantile(math_score, 0.3, na.rm = TRUE),
+    `4` = quantile(math_score, 0.4, na.rm = TRUE),
+    `5` = quantile(math_score, 0.5, na.rm = TRUE),
+    `6` = quantile(math_score, 0.6, na.rm = TRUE),
+    `7` = quantile(math_score, 0.7, na.rm = TRUE),
+    `8` = quantile(math_score, 0.8, na.rm = TRUE),
+    `9` = quantile(math_score, 0.9, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Reshape the math deciles data for plotting
+math_deciles_long <- math_deciles %>%
+  pivot_longer(cols = -c(CNT, wave), names_to = "Decile", values_to = "Score") %>%
+  mutate(Variable = "Math Score")
+
+# For Reading Scores
+read_deciles <- data %>%
+  group_by(CNT, wave) %>%
+  summarize(
+    `1` = quantile(read_score, 0.1, na.rm = TRUE),
+    `2` = quantile(read_score, 0.2, na.rm = TRUE),
+    `3` = quantile(read_score, 0.3, na.rm = TRUE),
+    `4` = quantile(read_score, 0.4, na.rm = TRUE),
+    `5` = quantile(read_score, 0.5, na.rm = TRUE),
+    `6` = quantile(read_score, 0.6, na.rm = TRUE),
+    `7` = quantile(read_score, 0.7, na.rm = TRUE),
+    `8` = quantile(read_score, 0.8, na.rm = TRUE),
+    `9` = quantile(read_score, 0.9, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Reshape the reading deciles data for plotting
+read_deciles_long <- read_deciles %>%
+  pivot_longer(cols = -c(CNT, wave), names_to = "Decile", values_to = "Score") %>%
+  mutate(Variable = "Reading Score")
+
+# Combine both datasets for plotting
+combined_deciles_long <- bind_rows(math_deciles_long, read_deciles_long)
+
+# Convert Decile to a factor for correct ordering in the plot (use just numbers for consistency with your summarize)
+combined_deciles_long$Decile <- factor(combined_deciles_long$Decile, levels = as.character(1:9))
+
+
+
+# Plot the deciles for both variables, grouped by CNT and wave
+ggplot(combined_deciles_long, aes(x = Decile, y = Score, group = interaction(CNT, wave), color = CNT)) +
+  geom_line() +
+  facet_wrap(~ Variable + wave, scales = "free", ncol = 3) +  # Allow both x and y scales to vary independently
+  labs(x = "Decile", y = "Score", color = "Country", title = "Deciles of Math and Reading Scores by Country and Wave") +  # Change legend title
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+combined_deciles_long$wave <- factor(combined_deciles_long$wave)
+math_deciles_long <- combined_deciles_long %>%
+  filter(Variable == "Math Score")
+ggplot(math_deciles_long, aes(x = Decile, y = Score, group = interaction(CNT, wave), color = wave)) +
+  geom_line(aes(linetype = wave), size = 1) +  # Line plot with different line types for each wave
+  facet_wrap(~ CNT, scales = "free_y", ncol = 2) +  # Separate panels for each country
+  labs(x = "Decile", y = "Math Score", color = "Wave", linetype = "Wave", title = "Deciles of Math Scores by Country and Wave") +
+  scale_linetype_manual(values = c("2015" = "solid", "2018" = "dashed", "2022" = "dotted")) +  # Different line types for waves
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    axis.text.x = element_text( hjust = 1)  # Rotate x-axis labels for readability
+  ) +
+  scale_x_discrete(drop = FALSE)
+
+# Filter for Reading Scores
+read_deciles_long <- combined_deciles_long %>%
+  filter(Variable == "Reading Score")
+
+# Plot for Reading Scores
+ggplot(read_deciles_long, aes(x = Decile, y = Score, group = interaction(CNT, wave), color = wave)) +
+  geom_line(aes(linetype = wave), size = 1) +  # Line plot with different line types for each wave
+  facet_wrap(~ CNT, scales = "free_y", ncol = 2) +  # Separate panels for each country
+  labs(x = "Decile", y = "Reading Score", color = "Wave", linetype = "Wave", title = "Deciles of Reading Scores by Country and Wave") +
+  scale_linetype_manual(values = c("2015" = "solid", "2018" = "dashed", "2022" = "dotted")) +  # Different line types for waves
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    axis.text.x = element_text( hjust = 1)  # Rotate x-axis labels for readability
+  ) +
+  scale_x_discrete(drop = FALSE)
+```
+
+```{r, echo=TRUE,warning=FALSE}
+ggplot(data, aes(x = factor(wave), y = math_score)) +  # Convert wave to a factor
+  geom_boxplot(fill = "skyblue", color = "black", outlier.color = "red", outlier.shape = 16) +
+  labs(title = "Boxplot of Standardized Math Scores by Wave for Each Country",
+       x = "Wave",
+       y = "Standardized Math Score") +
+  facet_wrap(~ CNT, scales = "free_y") +  # Separate plots for each country
+  theme_minimal() +
+  theme(axis.text.x = element_text( hjust = 1),  # Rotate x-axis labels
+        plot.title = element_text(hjust = 0.5))  # Center the title
+
+ggplot(data, aes(x = factor(wave), y = read_score)) +  # Convert wave to a factor
+  geom_boxplot(fill = "skyblue", color = "black", outlier.color = "red", outlier.shape = 16) +
+  labs(title = "Boxplot of Standardized Reading Scores by Wave for Each Country",
+       x = "Wave",
+       y = "Standardized Reading Score") +
+  facet_wrap(~ CNT, scales = "free_y") +  # Separate plots for each country
+  theme_minimal() +
+  theme(axis.text.x = element_text( hjust = 1),  # Rotate x-axis labels
+        plot.title = element_text(hjust = 0.5))  # Center the title
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+data_clean <- subset(data, !is.na(PAREDINT))
+
+# Convert PAREDINT to a factor
+data_clean$PAREDINT <- as.factor(data_clean$PAREDINT)
+
+# Calculate the means for each PAREDINT for both math and reading scores
+mean_data_math <- data_clean %>%
+  group_by(PAREDINT, CNT) %>%
+  summarize(mean_math_score = mean(math_score, na.rm = TRUE), .groups = "drop")
+
+mean_data_read <- data_clean %>%
+  group_by(PAREDINT, CNT) %>%
+  summarize(mean_read_score = mean(read_score, na.rm = TRUE), .groups = "drop")
+
+# Plot math scores by PAREDINT
+plot_math <- ggplot(data_clean, aes(x = PAREDINT, y = math_score, fill = PAREDINT)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 16, alpha = 0.3) +  # Make box plots transparent
+  geom_line(data = mean_data_math, aes(x = PAREDINT, y = mean_math_score, group = CNT), 
+            color = "blue", size = 0.2) +  # Connect means with a line
+
+  labs(title = "Math Scores by Parental Education Level",
+       x = "Parental Education Level",
+       y = "Math Score") +
+  facet_wrap(~ CNT, scales = "free_y") +  # Separate plots for each country
+  scale_x_discrete(labels = function(x) ifelse(x %in% c("4", "8", "12", "16"), x, "")) +  # Show specific labels
+  theme_minimal() +
+  theme(
+    
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    legend.position = "none",  # Hide the legend as it's redundant
+    panel.grid = element_blank(),  # Remove grid lines
+    panel.border = element_rect(color = "black", fill = NA)  # Add border around the plot area
+  )
+
+# Plot reading scores by PAREDINT
+plot_read <- ggplot(data_clean, aes(x = PAREDINT, y = read_score, fill = PAREDINT)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 16, alpha = 0.3) +  # Make box plots transparent
+  geom_line(data = mean_data_read, aes(x = PAREDINT, y = mean_read_score, group = CNT), 
+            color = "blue", size = 0.2) +  # Connect means with a line
+  
+  labs(title = "Reading Scores by Parental Education Level",
+       x = "Parental Education Level",
+       y = "Reading Score") +
+  facet_wrap(~ CNT, scales = "free_y") +  # Separate plots for each country
+  scale_x_discrete(labels = function(x) ifelse(x %in% c("4", "8", "12", "16"), x, "")) +  # Show specific labels
+  theme_minimal() +
+  theme(
+
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    legend.position = "none",  # Hide the legend as it's redundant
+    panel.grid = element_blank(),  # Remove grid lines
+    panel.border = element_rect(color = "black", fill = NA)  # Add border around the plot area
+  )
+
+# Print both plots
+print(plot_math)
+print(plot_read)
+
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+# Assuming your original dataframe is named 'data'
+# Create a new dataframe with the month variable included
+new_data <- data %>%
+mutate(month_variable = case_when(
+    ST003D02T == 7  ~ -3,  # July
+    ST003D02T == 8  ~ -2,  # August
+    ST003D02T == 9  ~ -1,  # September
+    ST003D02T == 10 ~ 0,  # October
+    ST003D02T == 11 ~ 1,  # November
+    ST003D02T == 12 ~ 2,  # December
+    ST003D02T == 1  ~ 3,   # January
+    ST003D02T == 2  ~ 4,   # February
+    ST003D02T == 3  ~ 5,   # March
+    ST003D02T == 4  ~ 6,   # April
+    ST003D02T == 5  ~ -5,   # May
+    ST003D02T == 6  ~ -4,   # June
+    TRUE ~ NA_real_       # Handle unexpected values
+  )) %>%
+  select(everything(), month_variable)  # Keep all original columns and the new month variable
+
+# Calculate the frequency of each month_variable for each country
+month_frequency <- new_data %>%
+  group_by(month_variable, CNT) %>%
+  summarize(frequency = n(), .groups = 'drop')
+
+# Define a color palette for countries
+n_countries <- length(unique(month_frequency$CNT))
+if (n_countries <= 12) {
+  country_colors <- RColorBrewer::brewer.pal(n_countries, "Set3")
+} else {
+  country_colors <- viridis::viridis(n_countries)
+}
+
+# Create the bar plot
+ggplot(month_frequency, aes(x = as.factor(month_variable), y = frequency, fill = CNT)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(
+    title = "Frequency of Month Variable by Country",
+    x = "Month Variable",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",  # Position legend at the bottom
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  scale_fill_manual(values = country_colors) +  # Apply custom colors
+  facet_wrap(~ CNT, scales = "free_y")  # Separate plots for each country
+```
+
+```{r, echo=TRUE,warning=FALSE}
+frequency_table <- data %>%
+    group_by(CNT, wave, ST126Q01TA) %>%
+    tally(name = "frequency") %>%
+    ungroup() 
+  
+  print(frequency_table)
+  data <- data %>%
+    group_by(CNT, wave, ST126Q01TA) %>%
+    tally(sort = TRUE) %>%  # Count the occurrences of each value, sorted by frequency
+    group_by(CNT, wave) %>%
+    top_n(2, wt = n) %>%  # Select the two most common values for each CNT and wave
+    ungroup() %>%
+    inner_join(data, by = c("CNT", "wave", "ST126Q01TA"))  # Keep only rows with the top 2 most common values
+  
+  unique_values <- data %>%
+    group_by(CNT, wave) %>%
+    distinct(ST126Q01TA) %>%
+    arrange(CNT, wave)
+  
+
+  unique_values <- data%>%
+    group_by(CNT, wave, ST126Q01TA) %>%
+    summarize(unique_ST003D02T = list(unique(GRADE)), .groups = "drop")  # Get unique ST003D02T values as a list for each CNT, wave, and ST126Q01TA
+  
+  # Print unique values
+  for (i in 1:nrow(unique_values)) {
+    cat("CNT:", unique_values$CNT[i], 
+        "| Wave:", unique_values$wave[i],
+        "| ST126Q01TA:", unique_values$ST126Q01TA[i], 
+        "| Unique ST003D02T values:", unique_values$unique_ST003D02T[[i]],
+        "| Unique Grade:", unique_values$unique_GRADE[[i]], "\n")
+  }
+  
+```
+
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+
+# Calculate average ST126Q01TA by country and wave
+average_ST126Q01TA <- data %>%
+  group_by(CNT, wave) %>%
+  summarize(average_age = mean(as.numeric(as.character(ST126Q01TA)), na.rm = TRUE)) %>%  # Convert to numeric
+  ungroup()
+
+# Pivot the data to have waves as columns
+wide_format <- average_ST126Q01TA %>%
+  pivot_wider(names_from = wave, values_from = average_age)
+
+# Use stargazer to display the wide-format data in a readable format
+stargazer(as.data.frame(wide_format), type = "text", summary = FALSE)
+
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+data <- data[!is.na(data$ST003D02T), ]
+data <- data[data$ST003D02T <= 12, ]
+average_data <- data %>%
+  group_by(CNT, ST003D02T) %>%
+  summarize(average_ST126Q01TA = mean(as.numeric(as.character(ST126Q01TA)), na.rm = TRUE)) %>%
+  ungroup() 
+
+average_data$ST003D02T <- factor(average_data$ST003D02T,
+                       levels = c(1:8, 9:12),  # Reorder months to start from July
+                       labels = c( "January", "February", "March", "April", "May", "June","July", "August", "September", "October", "November", "December"))
+
+# Split the data into two segments: Jan-June (1-6) and July-Dec (7-12)
+segment_1 <- average_data %>% filter(as.numeric(ST003D02T) <= 8)  # January to August
+segment_2 <- average_data %>% filter(as.numeric(ST003D02T) > 8)   # September to December
+
+# Create the plot
+ggplot() +
+  # Plot the line for July to December (segment 2)
+  geom_smooth(se = FALSE,data = segment_2, aes(x = ST003D02T, y = average_ST126Q01TA, group = CNT), color = "blue", size = 1.2) + # Thicker blue line
+  geom_point(data = segment_2, aes(x = ST003D02T, y = average_ST126Q01TA, group = CNT), size = 1.5) + # Add points for segment 2
+  
+  # Plot the line for January to June (segment 1)
+  geom_smooth(se = FALSE,data = segment_1, aes(x = ST003D02T, y = average_ST126Q01TA, group = CNT), color = "blue", size = 1.2) + # Thicker blue line
+  geom_point(data = segment_1, aes(x = ST003D02T, y = average_ST126Q01TA, group = CNT), size = 1.5) + # Add points for segment 1
+  
+  # Vertical lines for December and January with thicker lines
+  geom_vline(xintercept = c(8, 9), color = "red", size = 1.2) +  # Thicker dashed red lines
+  
+  labs(
+       x = "Month",
+       y = "Average Starting Age") +
+  facet_wrap(~ CNT, scales = "free_y",ncol = 3) +  # Free y-axis for each country but consistent x-axis
+  
+  # Customize the facet label background
+  theme_minimal() +  # Use a minimal theme
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for better readability
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    strip.text = element_text(face = "bold"),  # Bold country name
+    strip.background = element_rect(fill = "grey80", color = NA),  # Grey background for facet labels
+    panel.grid.major.x = element_blank(),  # Remove major vertical grid lines
+    panel.grid.minor.x = element_blank()
+  ) +
+  scale_x_discrete(drop = FALSE)  # Ensure all months are displayed on the x-axis
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+score_data <- data %>%
+  select(ST126Q01TA, math_score, read_score, CNT, wave) %>%
+  pivot_longer(cols = c(math_score, read_score),
+               names_to = "score_type",
+               values_to = "score")
+
+# Plot math_score and read_score against starting_age with smooth and linear lines, faceted by CNT
+ggplot(score_data, aes(x = ST126Q01TA, y = score, color = score_type)) +
+  geom_smooth(method = "lm", se = FALSE) +  # Add linear trendline
+  labs(
+    x = "School Starting Age",
+    y = "Test Score",
+    color = "Score Type"
+  ) +
+  scale_color_manual(labels = c("Math Score", "Reading Score"), values = c("blue", "green")) +
+  facet_wrap(~ CNT,scale="free") +  # Facet by CNT (country)
+  theme_minimal() +
+  theme(legend.position = "right")  # Adjust legend position if needed
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+# Load necessary packages
+data$standardized_math_score<-data$math_score
+data$standardized_read_score<-data$read_score
+
+
+countries <- c("AUSTRIA","U.A.E")
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2015:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+# Loop for wave 2015
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2015 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+ 
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2018:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+# Loop for wave 2018
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+# Plot the coefficients with confidence intervals
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients Wave 2018",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+# Load necessary packages
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2022:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+# Loop for wave 2022
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2022. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+ 
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                                     ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in all waves. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+  
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2015:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+  
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficient of z for Wave 2015 (Robust SE)",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2018:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2018",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2022:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2022. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T ==9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect :\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in all waves. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression
+  regression_model <- lm(standardized_read_score  ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+}
+
+# Plot the coefficients with confidence intervals
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for all Waves",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+
+
+data <- data %>%
+  group_by(CNT, wave,GRADE) %>%
+  mutate(standardized_read_score = (read_score - mean(read_score, na.rm = TRUE)) / sd(read_score, na.rm = TRUE)) %>%
+  ungroup()
+
+
+data <- data %>%
+  group_by(CNT, wave,GRADE) %>%
+  mutate(standardized_math_score = (math_score - mean(math_score, na.rm = TRUE)) / sd(math_score, na.rm = TRUE)) %>%
+  ungroup()
+data$ST003D02T <-as.factor(data$ST003D02T) 
+```
+
+
+
+```{r, echo=TRUE,warning=FALSE}
+score_data <- data %>%
+  select(ST126Q01TA, standardized_math_score, standardized_read_score, CNT, wave) %>%
+  pivot_longer(cols = c(standardized_math_score, standardized_read_score),
+               names_to = "score_type",
+               values_to = "score")
+
+# Plot math_score and read_score against starting_age with smooth and linear lines, faceted by CNT
+ggplot(score_data, aes(x = ST126Q01TA, y = score, color = score_type)) +
+  geom_smooth(method = "lm", se = FALSE) +  # Add linear trendline
+  labs(
+    x = "School Starting Age",
+    y = "Standardized test scores by grades",
+    color = "Score Type"
+  ) +
+  scale_color_manual(labels = c("Math Score", "Reading Score"), values = c("blue", "green")) +
+  facet_wrap(~ CNT,scale="free") +  # Facet by CNT (country)
+  theme_minimal() +
+  theme(legend.position = "right")  # Adjust legend position if needed
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+# Load necessary packages
+
+
+
+countries <- c("AUSTRIA","U.A.E")
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2015:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+# Loop for wave 2015
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2015 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+ 
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2018:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+# Loop for wave 2018
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+# Plot the coefficients with confidence intervals
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients Wave 2018",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+# Load necessary packages
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2022:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+# Loop for wave 2022
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2022. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+ 
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                                     ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in all waves. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression
+  regression_model <- lm(standardized_math_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+  
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2015:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+  
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficient of z for Wave 2015 (Robust SE)",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2018:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2018",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2022:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2022. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T ==9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+# Plot the coefficients with confidence intervals
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+
+
+
+  
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+
+  
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect :\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in all waves. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression
+  regression_model <- lm(standardized_read_score  ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+}
+
+# Plot the coefficients with confidence intervals
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for all Waves",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+############################################################################
+
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2015:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+# Loop for wave 2015
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2015 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2018:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+
+# Loop for wave 2018
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2018 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2022:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+# Loop for wave 2022
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2022. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the weighted regression
+  regression_model <- lm(standardized_math_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_math_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect :\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                                     ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$REPEAT)) == 0) {
+    cat("No valid cases for", country, " Skipping.\n")
+    next  # Skip to the next iteration
+  }
+    if (sum(!is.na(subset_data$z)) == 0) {
+    cat("No valid cases for", country, " Skipping.\n")
+    next  # Skip to the next iteration
+    }
+
+  # Run the regression
+  regression_model <- lm(standardized_math_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+  
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2015:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2015. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2015 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2018:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  if (sum(!is.na(subset_data$standardized_math_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2018 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect in wave 2022:\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+    if (sum(!is.na(subset_data$standardized_read_score)) == 0) {
+    cat("No valid cases for", country, "in wave 2022. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA)) 
+  
+  
+  # Run the regression for standardized_read_score
+  regression_model <- lm(standardized_read_score ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+# Initialize an empty data frame for coefficients of z
+coefficients_data_z <- data.frame() 
+
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(standardized_read_score ~ z+REPEAT+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))  
+  if (sum(!is.na(subset_data$REPEAT)) == 0) {
+    cat("No valid cases for", country, " Skipping.\n")
+    next  # Skip to the next iteration
+  }
+    if (sum(!is.na(subset_data$z)) == 0) {
+    cat("No valid cases for", country, " Skipping.\n")
+    next  # Skip to the next iteration
+    }
+
+  # Run the regression
+  regression_model <- lm(standardized_read_score  ~ z+REPEAT, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
+  
+#######################################################################################
+Relation between repeat and treatment
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2015)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(REPEAT ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect for wave 2015\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+
+# Loop for wave 2015
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2015
+  subset_data <- subset(data, CNT == country & wave == 2015)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$REPEAT)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(REPEAT ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2015:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2015 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2018)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(REPEAT ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect for wave 2018\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+
+# Loop for wave 2018
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2018
+  subset_data <- subset(data, CNT == country & wave == 2018)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$REPEAT)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  
+  # Run the weighted regression
+  regression_model <- lm(REPEAT ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2018:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2018 ",
+       x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+
+```
+
+```{r, echo=TRUE,warning=FALSE}
+coefficients_data_z <- data.frame() 
+
+subset_data <- subset(data, wave == 2022)
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(REPEAT ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect for wave 2022\n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+
+# Loop for wave 2022
+for (country in countries) {
+  # Subset the dataset for the current country and wave 2022
+  subset_data <- subset(data, CNT == country & wave == 2022)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  
+  if (sum(!is.na(subset_data$REPEAT)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the weighted regression
+  regression_model <- lm(REPEAT ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, "in wave 2022:\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Regression Coefficients for Wave 2022 ",
+       x = "Country",
+       y ="Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
+```{r, echo=TRUE,warning=FALSE}
+
+coefficients_data_z <- data.frame() 
+
+subset_data <- data
+print(unique(subset_data $CNT))  
+subset_data$CNT <- relevel(factor(subset_data$CNT), ref = "AUSTRIA")
+# Generate a binary variable z
+subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                          ifelse(subset_data$ST003D02T == 8, 0, NA))
+  # Run the weighted regression
+regression_model <- lm(REPEAT ~ z+CNT, data = subset_data, weights = W_FSTUWT)
+  
+# Calculate robust standard errors
+robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+# Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = "All Countries (Fixed Effects)"
+  ))
+
+
+# Display regression results using stargazer with robust standard errors
+cat("Regression Results for all Countries with country fixed effect for all waves \n")
+stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+
+
+for (country in countries) {
+  # Subset the dataset for the current country
+  subset_data <- subset(data, CNT == country)
+  
+  # Generate a binary variable z
+  subset_data$z <- ifelse(subset_data$ST003D02T == 9, 1,
+                                     ifelse(subset_data$ST003D02T == 8, 0, NA))
+  if (sum(!is.na(subset_data$REPEAT)) == 0) {
+    cat("No valid cases for", country, "in wave 2018. Skipping.\n")
+    next  # Skip to the next iteration
+  }
+  # Run the regression
+  regression_model <- lm(REPEAT ~ z, data = subset_data, weights = W_FSTUWT)
+  
+  
+  # Calculate robust standard errors
+  robust_se <- coeftest(regression_model, vcov = vcovHC(regression_model, type = "HC1"))
+  
+  # Identify the index of the term `z` in the model coefficients
+  term_index <- which(names(coef(regression_model)) == "z")
+  
+  # Extract coefficient, standard error, and confidence intervals for z
+  coef_z <- coef(regression_model)[term_index]
+  se_z <- (robust_se[term_index, term_index])
+  print(se_z)
+  conf_low <- coef_z - 1.96 * se_z
+  conf_high <- coef_z + 1.96 * se_z
+  
+  # Append to the data frame
+  coefficients_data_z <- rbind(coefficients_data_z, data.frame(
+    term = "z",
+    estimate = coef_z,
+    std.error = se_z,
+    conf.low = conf_low,
+    conf.high = conf_high,
+    country = country
+  ))
+  
+  
+  # Display regression results using stargazer with robust standard errors
+  cat("Regression Results for", country, ":\n")
+  stargazer(regression_model, type = "text", se = list(robust_se[, 2]))
+  
+}
+
+coefficients_data_z$country <- factor(coefficients_data_z$country, 
+                                      levels = c("All Countries (Fixed Effects)", 
+                                                 setdiff(unique(coefficients_data_z$country), 
+                                                         "All Countries (Fixed Effects)")))
+
+
+ggplot(coefficients_data_z, aes(x = country, y = estimate, ymin = conf.low, ymax = conf.high, color = country)) +
+  geom_pointrange(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(x = "Country",
+       y = "Estimate of treatment effect") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = "none")
+```
+
